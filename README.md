@@ -59,4 +59,4 @@ function renderApp(appId, container, winId, extra) {
 function renderApp-Name() {YOUR FUNCTIONS}
 ```
 ---
-## Developed with 💙 by **Wayne-Inc**
+## Developed with 💙 by *Wayne-Inc*
