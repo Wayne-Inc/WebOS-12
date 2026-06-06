@@ -17,7 +17,7 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 // Files directory
 const filesDir = path.join(__dirname, 'files');
@@ -164,8 +164,11 @@ app.post('/api/file/move', (req, res) => {
   const src = path.join(filesDir, req.body.srcPath.replace(/\//g, path.sep));
   const dest = path.join(filesDir, req.body.destPath.replace(/\//g, path.sep));
   if (!fs.existsSync(src)) { res.json({ success: false }); return; }
-  fs.renameSync(src, dest);
-  res.json({ success: true });
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.renameSync(src, dest);
+    res.json({ success: true });
+  } catch(e) { res.json({ success: false, error: e.message }); }
 });
 
 app.delete('/api/file/delete', (req, res) => res.json({ success: deleteFileFromFolder(req.body.filePath) }));
@@ -280,7 +283,8 @@ app.post('/api/localstorage/save', (req, res) => {
   fs.writeFileSync(storagePath, JSON.stringify(req.body, null, 2));
   if (req.body['wos_fs']) {
     Object.keys(req.body['wos_fs']).forEach(k => { 
-      if (req.body['wos_fs'][k].type === 'file') saveFileToFolder(k, req.body['wos_fs'][k].content || ''); 
+      const entry = req.body['wos_fs'][k];
+      if (entry.type === 'file' && entry.content) saveFileToFolder(k, entry.content); 
     });
   }
   res.json({ success: true });

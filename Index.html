@@ -2149,7 +2149,9 @@ const ACCENT_COLORS = ['#0078d4','#8764b8','#567c34','#ca5010','#008b8b','#c43e1
 /*                                                                
    VIRTUAL FILE SYSTEM
                                                                 */
-let FS = JSON.parse(localStorage.getItem('wos_fs') || 'null') || {
+let FS;
+try { FS = JSON.parse(localStorage.getItem('wos_fs') || 'null'); } catch(e) { FS = null; localStorage.removeItem('wos_fs'); }
+FS = FS || {
   '/': { type:'dir' },
   '/Desktop':  { type:'dir' },
   '/Documents':{ type:'dir' },
@@ -2176,14 +2178,22 @@ let FS = JSON.parse(localStorage.getItem('wos_fs') || 'null') || {
 function saveFS() {
   try { localStorage.setItem('wos_fs', JSON.stringify(FS)); } catch(e){}
   
-  // Sync to server
+  // Sync to server (text content only — images stay in localStorage)
   try {
-    const localStorageData = {};
-    localStorageData['wos_fs'] = FS;
+    const slim = {};
+    for (const [k, v] of Object.entries(FS)) {
+      if (v && typeof v === 'object') {
+        slim[k] = v.type === 'file' && v.contentType === 'base64' ? { type: 'file', contentType: 'base64' } : v;
+      } else {
+        slim[k] = v;
+      }
+    }
+    const body = JSON.stringify({ 'wos_fs': slim });
+    if (body.length > 2 * 1024 * 1024) return;
     fetch('/api/localstorage/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(localStorageData)
+      body
     }).catch(() => {});
   } catch(e) {}
   
@@ -2256,6 +2266,7 @@ function fsListDir(path) {
 
 function normPath(p) {
   if (!p || p === '/') return '/';
+  if (p.includes('://')) return p;
   return p.replace(/\/+$/, '');
 }
 
@@ -2285,7 +2296,8 @@ function fsDelete(p) {
   saveFS();
 }
 
-let RECYCLE_BIN = JSON.parse(localStorage.getItem('wos_recycle') || '[]');
+let RECYCLE_BIN;
+try { RECYCLE_BIN = JSON.parse(localStorage.getItem('wos_recycle') || '[]'); } catch(e) { RECYCLE_BIN = []; localStorage.removeItem('wos_recycle'); }
 function saveRecycleBin() {
   try { localStorage.setItem('wos_recycle', JSON.stringify(RECYCLE_BIN)); } catch (e) {}
 }
@@ -2375,7 +2387,9 @@ function fileTypeLucide(name, type) {
 /*                                                                
    SETTINGS STATE                                                                
                                                                       */
-let state = JSON.parse(localStorage.getItem('wos_state') || '{}');
+let state;
+try { state = JSON.parse(localStorage.getItem('wos_state') || '{}'); }
+catch(e) { state = {}; localStorage.removeItem('wos_state'); }
 const isNewInstall = !state.installed;
 if (isNewInstall) {
   state = {
@@ -2416,6 +2430,7 @@ state.passkeyCredentialId = state.passkeyCredentialId || '';
 state.googleUser = state.googleUser || null;
 state.customWallpaper = state.customWallpaper || '';
 state.clock24h = state.clock24h === true;
+state.fullscreen = state.fullscreen === true;
 
 const TIMEZONE_DATA = {
   'Africa/Nairobi': { offset: 3, name: 'EAT' },
@@ -3247,7 +3262,12 @@ function buildStartRec() {
     item.onclick = () => {
       toggleStart();
       const ext = (f.name.split('.').pop() || '').toLowerCase();
-      if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) launchApp('music');
+      const imgExts = ['png','jpg','jpeg','gif','webp','bmp','svg','ico'];
+      const vidExts = ['mp4','webm','avi','mov','mkv'];
+      const audioExts = ['mp3','wav','ogg','m4a','flac'];
+      if (imgExts.includes(ext)) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
+      else if (vidExts.includes(ext)) launchApp('video-player', { path: f.path, src: FS[f.path].content });
+      else if (audioExts.includes(ext)) launchApp('music', { file: f.path, src: FS[f.path].content });
       else openFileInNotepad(f.path);
     };
     list.appendChild(item);
@@ -3343,7 +3363,12 @@ function performStartSearch() {
     item.onclick = () => {
       toggleStart();
       const ext = (f.name.split('.').pop() || '').toLowerCase();
-      if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) launchApp('music');
+      const imgExts = ['png','jpg','jpeg','gif','webp','bmp','svg','ico'];
+      const vidExts = ['mp4','webm','avi','mov','mkv'];
+      const audioExts = ['mp3','wav','ogg','m4a','flac'];
+      if (imgExts.includes(ext)) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
+      else if (vidExts.includes(ext)) launchApp('video-player', { path: f.path, src: FS[f.path].content });
+      else if (audioExts.includes(ext)) launchApp('music', { file: f.path, src: FS[f.path].content });
       else openFileInNotepad(f.path);
     };
     results.appendChild(item);
@@ -5318,6 +5343,7 @@ function renderExplorer(container, winId, extra = {}) {
           <div class="sb-item" data-path="/Pictures"><span class="sbi">${lucideIconHtml('image', 16)}</span> Pictures</div>
           <div class="sb-item" data-path="/Music"><span class="sbi">${lucideIconHtml('music', 16)}</span> Music</div>
           <div class="sb-item" data-path="/Videos"><span class="sbi">${lucideIconHtml('video', 16)}</span> Videos</div>
+          <div class="sb-item" data-path="recycle://"><span class="sbi">${lucideIconHtml('trash-2', 16)}</span> Recycle Bin${RECYCLE_BIN.length ? ' (' + RECYCLE_BIN.length + ')' : ''}</div>
           <div class="sidebar-section">This PC</div>
           <div class="sb-item" data-path="/"><span class="sbi">${lucideIconHtml('hard-drive', 16)}</span> Local Disk (${driveLetter}:)</div>
         </div>
@@ -5347,9 +5373,10 @@ function renderExplorer(container, winId, extra = {}) {
       history.push(cwd);
       hIdx = history.length - 1;
     }
-    const displayPath = cwd === '/' ? driveLetter + ':\\' : driveLetter + ':\\' + cwd.replace(/\//g, '\\');
+    const isRecycle = cwd === 'recycle://';
+    const displayPath = isRecycle ? 'Recycle Bin' : (cwd === '/' ? driveLetter + ':\\' : driveLetter + ':\\' + cwd.replace(/\//g, '\\'));
     document.getElementById(`ex_addr_${winId}`).value = displayPath;
-    document.getElementById(`ex_bc_${winId}`).textContent = cwd || '/';
+    document.getElementById(`ex_bc_${winId}`).textContent = isRecycle ? 'Recycle Bin' : (cwd || '/');
     renderFiles();
     updateNav();
     // sidebar active
@@ -5361,12 +5388,41 @@ function renderExplorer(container, winId, extra = {}) {
   function updateNav() {
     document.getElementById(`ex_back_${winId}`).disabled = hIdx <= 0;
     document.getElementById(`ex_fwd_${winId}`).disabled  = hIdx >= history.length - 1;
-    document.getElementById(`ex_up_${winId}`).disabled   = cwd === '/';
+    document.getElementById(`ex_up_${winId}`).disabled   = cwd === '/' || cwd === 'recycle://';
   }
 
   function handleExplorerDrop(destPath, e) {
     const src = e.dataTransfer.getData('application/x-webos-path');
     if (!src) return;
+
+    // Drop on Recycle Bin → recycle the file
+    if (destPath === 'recycle://') {
+      const name = src.split('/').pop();
+      if (FS[src]) {
+        if (recyclePath(src)) {
+          showNotification('Recycle Bin', `Moved "${name}" to Recycle Bin`, 'trash-2');
+          renderFiles();
+          notifyFsChanged();
+        }
+        buildDesktopIcons();
+        return;
+      } else {
+        fetch(`/api/file/read/json?path=${encodeURIComponent(src)}`).then(r => r.json()).then(data => {
+          if (data.success) {
+            const ext = name.split('.').pop().toLowerCase();
+            const textExts = ['txt','md','json','xml','html','css','js','py','java','c','cpp','h','sh','bat','ini','cfg','log','csv','tsv','yml','yaml','toml','ini','cfg','conf'];
+            FS[src] = { type: 'file', content: data.content, contentType: textExts.includes(ext) ? 'text' : 'base64' };
+            saveFS();
+            fetch('/api/file/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({filePath:src}) }).catch(()=>{});
+            if (recyclePath(src)) showNotification('Recycle Bin', `Moved "${name}" to Recycle Bin`, 'trash-2');
+          } else {
+            showNotification('Recycle Bin', 'Could not read file', 'alert-circle');
+          }
+        }).catch(() => showNotification('Recycle Bin', 'Failed to recycle file', 'alert-circle'))
+        .finally(() => { loadServerFiles(true).then(() => renderFiles()); buildDesktopIcons(); });
+        return;
+      }
+    }
     
     // Check if it's a local FS file
     if (FS[src]) {
@@ -5462,10 +5518,68 @@ function renderExplorer(container, winId, extra = {}) {
     } catch (e) { return {}; }
   }
 
+  function renderRecycleView(cnt, status) {
+    if (!RECYCLE_BIN.length) {
+      cnt.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-ter);font-size:14px">Recycle Bin is empty</div>';
+      status.textContent = '0 items';
+      return;
+    }
+    cnt.innerHTML = '';
+    cnt.style.display = 'block';
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'display:flex;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);align-items:center';
+    const emptyBtn = document.createElement('button');
+    emptyBtn.type = 'button';
+    emptyBtn.textContent = 'Empty Recycle Bin';
+    emptyBtn.style.cssText = 'padding:6px 14px;border-radius:6px;background:rgba(196,43,28,0.15);color:#f47174;border:1px solid rgba(196,43,28,0.3);cursor:pointer;font-size:12px;font-weight:600';
+    emptyBtn.onclick = () => {
+      if (confirm('Permanently delete all items in Recycle Bin?')) {
+        emptyRecycleBinPermanently();
+        showNotification('Recycle Bin', 'Recycle Bin emptied', 'trash-2');
+        renderFiles();
+        buildDesktopIcons();
+      }
+    };
+    toolbar.appendChild(emptyBtn);
+    cnt.appendChild(toolbar);
+    RECYCLE_BIN.slice().reverse().forEach(entry => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--border);cursor:default';
+      const when = new Date(entry.deleted).toLocaleString();
+      row.innerHTML = `${lucideIconHtml('file-text', 20)}
+<div style="flex:1;min-width:0">
+<div style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${entry.name}</div>
+<div style="font-size:11px;color:var(--text-ter)">Deleted: ${when}</div>
+</div>
+<button type="button" class="rb-btn rb-restore" style="padding:4px 12px;border-radius:6px;background:var(--surface-hover);color:var(--text);border:1px solid var(--border);cursor:pointer;font-size:11px">Restore</button>
+<button type="button" class="rb-btn danger rb-purge" style="padding:4px 12px;border-radius:6px;background:rgba(196,43,28,0.15);color:#f47174;border:1px solid rgba(196,43,28,0.3);cursor:pointer;font-size:11px">Delete permanently</button>`;
+      row.querySelector('.rb-restore').onclick = () => {
+        if (restoreRecycleEntry(entry)) {
+          showNotification('Recycle Bin', 'Restored: ' + entry.name, 'rotate-ccw');
+          renderRecycleView(cnt, status);
+          notifyFsChanged();
+        }
+      };
+      row.querySelector('.rb-purge').onclick = () => {
+        purgeRecycleEntry(entry.id);
+        showNotification('Recycle Bin', 'Permanently deleted', 'trash-2');
+        renderRecycleView(cnt, status);
+      };
+      cnt.appendChild(row);
+    });
+    status.textContent = `${RECYCLE_BIN.length} item${RECYCLE_BIN.length !== 1 ? 's' : ''} in Recycle Bin`;
+    refreshLucideIcons(cnt);
+  }
+
   async function renderFiles() {
     const cnt = document.getElementById(`ex_files_${winId}`);
     const status = document.getElementById(`ex_status_${winId}`);
     const mainEl = document.getElementById(`ex_main_${winId}`);
+
+    if (cwd === 'recycle://') {
+      renderRecycleView(cnt, status);
+      return;
+    }
 
     const isRoot = cwd === '/';
     let items = [];
@@ -5482,16 +5596,12 @@ function renderExplorer(container, winId, extra = {}) {
       }));
     } else {
       const folderName = cwd.slice(1);
-      const folderFiles = sf[folderName] || [];
-      items = folderFiles.map(f => ({
-        path: f.path,
-        name: f.name,
-        type: 'file',
-        isImg: f.isImg,
-        isVid: f.isVid,
-        isMusic: f.isMusic,
-        thumb: f.thumb
-      }));
+      const serverFiles = sf[folderName] || [];
+      const fsItems = fsListDir(cwd);
+      const seen = new Set();
+      items = [];
+      serverFiles.forEach(f => { seen.add(f.name); items.push({ path: f.path, name: f.name, type: 'file', isImg: f.isImg, isVid: f.isVid, isMusic: f.isMusic, thumb: f.thumb }); });
+      fsItems.forEach(f => { if (!seen.has(f.name)) { seen.add(f.name); items.push({ path: f.path, name: f.name, type: f.type }); } });
     }
 
     status.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
@@ -5548,19 +5658,25 @@ function renderExplorer(container, winId, extra = {}) {
     if (f.type === 'dir') navigate(f.path);
     else if (f.isImg) {
       if (f.thumb) launchApp('gallery-viewer', { path: f.path, src: f.thumb });
+      else if (FS[f.path]) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
       else launchApp('gallery-viewer', { path: f.path, src: `/api/file/read/json?path=${encodeURIComponent(f.path)}` });
     }
     else if (f.isVid) {
-      const vidSrc = `/api/file/video?path=${encodeURIComponent(f.path)}`;
-      launchApp('video-player', { path: f.path, src: vidSrc });
+      if (FS[f.path]) launchApp('video-player', { path: f.path, src: FS[f.path].content });
+      else { const vs = `/api/file/video?path=${encodeURIComponent(f.path)}`; launchApp('video-player', { path: f.path, src: vs }); }
     }
     else if (f.isMusic) {
-      const audioSrc = `/api/file/audio?path=${encodeURIComponent(f.path)}`;
-      launchApp('music', { file: f.path, src: audioSrc });
+      if (FS[f.path]) launchApp('music', { file: f.path, src: FS[f.path].content });
+      else { const as = `/api/file/audio?path=${encodeURIComponent(f.path)}`; launchApp('music', { file: f.path, src: as }); }
     }
     else {
       const ext = (f.ext || f.name.split('.').pop() || '').toLowerCase();
-      if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) launchApp('music');
+      const imgExts = ['png','jpg','jpeg','gif','webp','bmp','svg','ico'];
+      const vidExts = ['mp4','webm','avi','mov','mkv'];
+      const audioExts = ['mp3','wav','ogg','m4a','flac'];
+      if (imgExts.includes(ext)) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
+      else if (vidExts.includes(ext)) launchApp('video-player', { path: f.path, src: FS[f.path]?.content || `/api/file/video?path=${encodeURIComponent(f.path)}` });
+      else if (audioExts.includes(ext)) launchApp('music', { file: f.path, src: FS[f.path]?.content || `/api/file/audio?path=${encodeURIComponent(f.path)}` });
       else openFileInNotepad(f.path);
     }
   }
@@ -5575,25 +5691,27 @@ function renderExplorer(container, winId, extra = {}) {
   });
 
   document.getElementById(`ex_files_${winId}`).addEventListener('keydown', e => {
-    if (e.key === 'Delete' && selected) {
+    if (e.key === 'Delete' && selected && cwd !== 'recycle://') {
       e.preventDefault();
       const serverFolders = ['/Pictures', '/Music', '/Videos'];
       const isServerFile = serverFolders.some(f => selected.startsWith(f));
+      const name = selected.split('/').pop();
       if (isServerFile) {
-        fetch('/api/file/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filePath: selected })
-        }).then(() => {
-          selected = null;
-          loadServerFiles(true).then(() => renderFiles());
-          showNotification('File Explorer', 'File deleted', 'trash-2');
-        }).catch(() => showNotification('File Explorer', 'Delete failed', 'alert-circle'));
+        fetch(`/api/file/read/json?path=${encodeURIComponent(selected)}`).then(r=>r.json()).then(data => {
+          if (data.success) {
+            const ext = name.split('.').pop().toLowerCase();
+            const textExts = ['txt','md','json','xml','html','css','js','py','java','c','cpp','h','sh','bat','ini','cfg','log','csv','tsv','yml','yaml','toml'];
+            FS[selected] = { type:'file', content:data.content, contentType:textExts.includes(ext)?'text':'base64' };
+            saveFS();
+            fetch('/api/file/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:selected})}).catch(()=>{});
+            if (recyclePath(selected)) showNotification('Recycle Bin', `Moved "${name}" to Recycle Bin`, 'trash-2');
+          }
+        }).catch(() => {}).finally(() => { selected = null; loadServerFiles(true).then(() => renderFiles()); buildDesktopIcons(); });
       } else {
-        fsDelete(selected);
+        if (recyclePath(selected)) showNotification('Recycle Bin', `Moved "${name}" to Recycle Bin`, 'trash-2');
         renderFiles();
-        showNotification('File Explorer', 'Item deleted', 'trash-2');
         selected = null;
+        buildDesktopIcons();
       }
     }
   });
@@ -5661,6 +5779,11 @@ function renderExplorer(container, winId, extra = {}) {
     sb.addEventListener('drop', async e => {
       e.preventDefault();
       sb.classList.remove('ex-drop-target');
+
+      if (sb.dataset.path === 'recycle://') {
+        handleExplorerDrop('recycle://', e);
+        return;
+      }
       
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         await handleExternalFiles(sb.dataset.path, e.dataTransfer.files);
@@ -5675,6 +5798,7 @@ function renderExplorer(container, winId, extra = {}) {
   // Right-click on empty area
   document.getElementById(`ex_main_${winId}`).addEventListener('contextmenu', e => {
     if (e.target.closest('.file-item,.fl-item')) return;
+    if (cwd === 'recycle://') { e.preventDefault(); return; }
     e.preventDefault();
     showContextMenu(e.clientX, e.clientY, [
       { lucide: 'folder-plus', label: 'New Folder', action: () => {
@@ -5712,18 +5836,26 @@ function showFileContextMenu(x, y, f, winId, refresh, loadServerFilesFn) {
     if (f.type === 'dir') { /* navigated via dblclick */ }
     else if (f.isImg) {
       if (f.thumb) launchApp('gallery-viewer', { path: f.path, src: f.thumb });
+      else if (FS[f.path]) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
       else launchApp('gallery-viewer', { path: f.path, src: `/api/file/read/json?path=${encodeURIComponent(f.path)}` });
     }
     else if (f.isVid) {
-      const vidSrc = `/api/file/video?path=${encodeURIComponent(f.path)}`;
-      launchApp('video-player', { path: f.path, src: vidSrc });
+      if (FS[f.path]) launchApp('video-player', { path: f.path, src: FS[f.path].content });
+      else { const vs = `/api/file/video?path=${encodeURIComponent(f.path)}`; launchApp('video-player', { path: f.path, src: vs }); }
     }
     else if (f.isMusic) {
-      const audioSrc = `/api/file/audio?path=${encodeURIComponent(f.path)}`;
-      launchApp('music', { file: f.path, src: audioSrc });
+      if (FS[f.path]) launchApp('music', { file: f.path, src: FS[f.path].content });
+      else { const as = `/api/file/audio?path=${encodeURIComponent(f.path)}`; launchApp('music', { file: f.path, src: as }); }
     }
     else {
-      openFileInNotepad(f.path);
+      const ext = (f.ext || f.name.split('.').pop() || '').toLowerCase();
+      const imgExts = ['png','jpg','jpeg','gif','webp','bmp','svg','ico'];
+      const vidExts = ['mp4','webm','avi','mov','mkv'];
+      const audioExts = ['mp3','wav','ogg','m4a','flac'];
+      if (imgExts.includes(ext)) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
+      else if (vidExts.includes(ext)) launchApp('video-player', { path: f.path, src: FS[f.path]?.content || `/api/file/video?path=${encodeURIComponent(f.path)}` });
+      else if (audioExts.includes(ext)) launchApp('music', { file: f.path, src: FS[f.path]?.content || `/api/file/audio?path=${encodeURIComponent(f.path)}` });
+      else openFileInNotepad(f.path);
     }
   };
   const items = [
@@ -5748,20 +5880,23 @@ function showFileContextMenu(x, y, f, winId, refresh, loadServerFilesFn) {
         }
       }
     }},
-    { lucide: 'trash-2', label: 'Delete', cls: 'danger', action: () => {
+    { lucide: 'trash-2', label: 'Move to Recycle Bin', cls: 'danger', action: () => {
       if (isServerFile) {
-        fetch('/api/file/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filePath: f.path })
-        }).then(() => {
-          loadServerFilesFn(true).then(() => refresh());
-          showNotification('File Explorer', 'File deleted', 'trash-2');
-        }).catch(() => showNotification('File Explorer', 'Delete failed', 'alert-circle'));
+        fetch(`/api/file/read/json?path=${encodeURIComponent(f.path)}`).then(r=>r.json()).then(data => {
+          if (data.success) {
+            const ext = f.name.split('.').pop().toLowerCase();
+            const textExts = ['txt','md','json','xml','html','css','js','py','java','c','cpp','h','sh','bat','ini','cfg','log','csv','tsv','yml','yaml','toml'];
+            FS[f.path] = { type:'file', content:data.content, contentType:textExts.includes(ext)?'text':'base64' };
+            saveFS();
+            fetch('/api/file/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filePath:f.path})}).catch(()=>{});
+            if (recyclePath(f.path)) showNotification('Recycle Bin', `Moved "${f.name}" to Recycle Bin`, 'trash-2');
+          } else { showNotification('Recycle Bin', 'Could not read file', 'alert-circle'); }
+        }).catch(() => showNotification('Recycle Bin', 'Failed to recycle file', 'alert-circle'))
+        .finally(() => { loadServerFilesFn(true).then(() => refresh()); buildDesktopIcons(); });
       } else {
-        fsDelete(f.path); 
-        refresh(); 
-        showNotification('File Explorer', 'File deleted', 'trash-2');
+        if (recyclePath(f.path)) showNotification('Recycle Bin', `Moved "${f.name}" to Recycle Bin`, 'trash-2');
+        refresh();
+        buildDesktopIcons();
       }
     }},
   ];
@@ -5997,6 +6132,19 @@ function renderSettings(container, winId) {
               <div class="sr-info"><div class="sr-title">Accent Color</div><div class="sr-desc">Choose your accent color</div></div>
             </div>
             <div class="accent-grid" id="ac_grid_${winId}"></div>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div class="sr-icon">${lucideIconHtml('maximize', 18)}</div>
+              <div class="sr-info"><div class="sr-title">Fullscreen Mode</div><div class="sr-desc">Launch WebOS in fullscreen on startup</div></div>
+              <div class="sr-ctrl">
+                <label style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer">
+                  <input type="checkbox" id="fs_toggle_${winId}" ${state.fullscreen ? 'checked' : ''} style="opacity:0;width:0;height:0" />
+                  <span class="toggle-slider" style="position:absolute;inset:0;background:${state.fullscreen ? 'var(--accent)' : 'var(--border)'};border-radius:11px;transition:0.3s"></span>
+                  <span class="toggle-knob" style="position:absolute;left:${state.fullscreen ? '20px' : '3px'};top:3px;width:16px;height:16px;background:#fff;border-radius:50%;transition:0.3s"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -6321,12 +6469,15 @@ function renderSettings(container, winId) {
       if (!file) return;
       const reader = new FileReader();
       reader.onload = function(e) {
-        state.profilePicture = e.target.result;
-        saveState();
-        avatarEl.innerHTML = `<img src="${state.profilePicture}" style="width:100%;height:100%;object-fit:cover" />`;
-        updateUsernameUI();
-        const lockAvatar = document.getElementById('lock-avatar');
-        if (lockAvatar) lockAvatar.innerHTML = `<img src="${state.profilePicture}" style="width:100%;height:100%;object-fit:cover" />`;
+        const dataUrl = e.target.result;
+        showCropModal(dataUrl, (cropped) => {
+          state.profilePicture = cropped;
+          saveState();
+          avatarEl.innerHTML = `<img src="${state.profilePicture}" style="width:100%;height:100%;object-fit:cover" />`;
+          updateUsernameUI();
+          const lockAvatar = document.getElementById('lock-avatar');
+          if (lockAvatar) lockAvatar.innerHTML = `<img src="${state.profilePicture}" style="width:100%;height:100%;object-fit:cover" />`;
+        });
       };
       reader.readAsDataURL(file);
     });
@@ -6470,7 +6621,89 @@ function renderSettings(container, winId) {
     acGrid.appendChild(el);
   });
 
+  const fsToggle = document.getElementById(`fs_toggle_${winId}`);
+  if (fsToggle) {
+    fsToggle.addEventListener('change', function() {
+      state.fullscreen = this.checked;
+      saveState();
+      if (this.checked) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      }
+    });
+  }
+
   refreshLucideIcons(container);
+}
+
+function showCropModal(imageSrc, onCrop) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;font-family:var(--font),sans-serif';
+  const img = new Image();
+  img.onload = function() {
+    const maxDim = 400;
+    let displayW = img.naturalWidth, displayH = img.naturalHeight;
+    if (displayW > maxDim || displayH > maxDim) {
+      const scale = Math.min(maxDim / displayW, maxDim / displayH);
+      displayW = Math.round(displayW * scale);
+      displayH = Math.round(displayH * scale);
+    }
+    const cropSize = Math.min(displayW, displayH, 220);
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'background:var(--surface,#1a1a2e);border-radius:16px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.6);text-align:center;max-width:90vw';
+    wrap.innerHTML = `<div style="font-size:16px;font-weight:600;color:var(--text,#fff);margin-bottom:16px">Crop Profile Picture</div>
+<div style="position:relative;display:inline-block;width:${displayW}px;height:${displayH}px;margin:0 auto">
+<img src="${imageSrc}" style="display:block;width:${displayW}px;height:${displayH}px;border-radius:8px;user-select:none" />
+<div id="crop_sel" style="position:absolute;top:${Math.round((displayH-cropSize)/2)}px;left:${Math.round((displayW-cropSize)/2)}px;width:${cropSize}px;height:${cropSize}px;border:2px solid var(--accent,#0078d4);border-radius:50%;box-shadow:0 0 0 9999px rgba(0,0,0,0.5);cursor:grab;pointer-events:auto"></div>
+</div>
+<div style="margin-top:16px;display:flex;gap:10px;justify-content:center">
+<button id="crop_cancel" style="padding:8px 20px;border-radius:8px;background:var(--surface-hover,#2a2a3e);color:var(--text,#fff);border:1px solid var(--border,#333);cursor:pointer;font-size:13px">Cancel</button>
+<button id="crop_apply" style="padding:8px 20px;border-radius:8px;background:var(--accent,#0078d4);color:#fff;border:none;cursor:pointer;font-size:13px;font-weight:600">Crop & Set</button>
+</div>`;
+    overlay.appendChild(wrap);
+    document.body.appendChild(overlay);
+
+    const sel = document.getElementById('crop_sel');
+    let dragging = false, startX, startY, startL, startT;
+    sel.addEventListener('mousedown', function(e) {
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      startL = sel.offsetLeft;
+      startT = sel.offsetTop;
+      sel.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e) {
+      if (!dragging) return;
+      let dx = e.clientX - startX, dy = e.clientY - startY;
+      let nl = Math.max(0, Math.min(startL + dx, displayW - cropSize));
+      let nt = Math.max(0, Math.min(startT + dy, displayH - cropSize));
+      sel.style.left = nl + 'px';
+      sel.style.top = nt + 'px';
+    });
+    document.addEventListener('mouseup', function() {
+      if (dragging) { dragging = false; sel.style.cursor = 'grab'; }
+    }, { once: false });
+
+    document.getElementById('crop_cancel').onclick = function() { overlay.remove(); };
+    document.getElementById('crop_apply').onclick = function() {
+      const ratioX = img.naturalWidth / displayW;
+      const ratioY = img.naturalHeight / displayH;
+      const sx = Math.round(parseInt(sel.style.left) * ratioX);
+      const sy = Math.round(parseInt(sel.style.top) * ratioY);
+      const sw = Math.round(cropSize * ratioX);
+      const sh = Math.round(cropSize * ratioY);
+      const cvs = document.createElement('canvas');
+      cvs.width = sw; cvs.height = sh;
+      const ctx = cvs.getContext('2d');
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      overlay.remove();
+      onCrop(cvs.toDataURL('image/jpeg', 0.92));
+    };
+  };
+  img.src = imageSrc;
 }
 
 /* €€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€
@@ -7757,7 +7990,7 @@ function buildDesktopIcons() {
   
   const defs = [
     { key: 'sys:thispc', lucide: 'hard-drive', label: 'This PC', action: () => launchApp('explorer', { startPath: '/' }) },
-    { key: 'sys:recycle', lucide: 'trash-2', label: rbLabel, action: () => launchApp('recycle') },
+    { key: 'sys:recycle', lucide: 'trash-2', label: rbLabel, action: () => launchApp('explorer', { startPath: 'recycle://' }) },
     { key: 'sys:documents', lucide: 'file-text', label: 'Documents', action: () => launchApp('explorer', { startPath: '/Documents' }) },
     { key: 'sys:paint', lucide: 'palette', label: 'Paint', action: () => launchApp('paint') },
     { key: 'sys:music', lucide: 'music', label: 'Music', action: () => launchApp('music') },
@@ -7770,7 +8003,12 @@ function buildDesktopIcons() {
       action: () => {
         if (f.type === 'file') {
           const ext = (f.name.split('.').pop() || '').toLowerCase();
-          if (['mp3', 'wav', 'ogg', 'm4a'].includes(ext)) launchApp('music');
+          const imgExts = ['png','jpg','jpeg','gif','webp','bmp','svg','ico'];
+          const vidExts = ['mp4','webm','avi','mov','mkv'];
+          const audioExts = ['mp3','wav','ogg','m4a','flac'];
+          if (imgExts.includes(ext)) launchApp('gallery-viewer', { path: f.path, src: FS[f.path].content });
+          else if (vidExts.includes(ext)) launchApp('video-player', { path: f.path, src: FS[f.path].content });
+          else if (audioExts.includes(ext)) launchApp('music', { file: f.path, src: FS[f.path].content });
           else openFileInNotepad(f.path);
         } else launchApp('explorer', { startPath: f.path });
       }
@@ -8414,9 +8652,11 @@ function init() {
       saveState();
       document.getElementById('boot-overlay').style.display = 'none';
       showLockScreen();
+      setTimeout(tryFullscreen, 600);
     } else {
       document.getElementById('boot-overlay').style.display = 'none';
       showDesktop();
+      setTimeout(tryFullscreen, 600);
       showNotification('Welcome to WebOS 12', 'Double-click desktop icons or use the Start menu to open apps.', 'sparkles');
     }
   }, 1300);
@@ -8646,6 +8886,7 @@ function unlockOS() {
   if (entered === state.password) {
     error.classList.remove('visible');
     hideLockScreen();
+    setTimeout(tryFullscreen, 300);
     showNotification('Welcome back', 'You are now signed in as ' + (state.username || 'User'), 'user');
   } else {
     error.classList.add('visible');
@@ -8703,6 +8944,7 @@ document.addEventListener('DOMContentLoaded', function() {
           const error = document.getElementById('lock-error');
           if (error) error.classList.remove('visible');
           hideLockScreen();
+          setTimeout(tryFullscreen, 300);
           showNotification('Welcome back', 'Signed in with passkey', 'fingerprint');
         }
       } catch (err) {
@@ -8725,6 +8967,7 @@ document.addEventListener('DOMContentLoaded', function() {
           const error = document.getElementById('lock-error');
           if (error) error.classList.remove('visible');
           hideLockScreen();
+          setTimeout(tryFullscreen, 300);
           showNotification('Welcome back', 'Signed in with Google', 'mail');
         } else {
           const error = document.getElementById('lock-error');
@@ -8743,6 +8986,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       }
     });
+  }
+});
+
+/*                                                        
+   FULLSCREEN
+                                                          */
+function tryFullscreen() {
+  if (state.fullscreen && !document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'F11') {
+    e.preventDefault();
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }
+});
+
+document.addEventListener('fullscreenchange', function() {
+  if (!document.fullscreenElement && state.fullscreen) {
+    setTimeout(tryFullscreen, 500);
   }
 });
 
