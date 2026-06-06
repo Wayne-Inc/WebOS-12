@@ -5,6 +5,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -70,12 +71,17 @@ function deleteFileFromFolder(filePath) {
 
 function getAllFiles(dir = filesDir, baseDir = filesDir) {
   let results = [];
-  fs.readdirSync(dir, { withFileTypes: true }).forEach(item => {
-    const fullPath = path.join(dir, item.name);
-    const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
-    if (item.isDirectory()) results = results.concat(getAllFiles(fullPath, baseDir));
-    else results.push({ name: item.name, path: '/' + relativePath, size: fs.statSync(fullPath).size });
-  });
+  try {
+    if (!fs.existsSync(dir)) return results;
+    fs.readdirSync(dir, { withFileTypes: true }).forEach(item => {
+      const fullPath = path.join(dir, item.name);
+      const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+      if (item.isDirectory()) results = results.concat(getAllFiles(fullPath, baseDir));
+      else results.push({ name: item.name, path: '/' + relativePath, size: fs.statSync(fullPath).size });
+    });
+  } catch (e) {
+    console.error('getAllFiles error:', e.message);
+  }
   return results;
 }
 // API
@@ -84,6 +90,12 @@ app.get('/api/session', (req, res) => {
   const uniquePart = req.query.id || sessionId.slice(-6);
   const userEmail = `${username.toLowerCase().replace(/[^a-z0-9]/g, '')}_${uniquePart}@webos`;
   res.json({ sessionId, email: userEmail, name: username });
+});
+
+app.get('/api/auth/challenge', (req, res) => {
+  const challengeBytes = crypto.randomBytes(32);
+  const challenge = challengeBytes.toString('base64');
+  res.json({ challenge });
 });
 
 app.get('/api/media', (req, res) => {

@@ -1148,6 +1148,8 @@ function toggleStart() {
     }
     document.getElementById('start-search-input').focus();
   } else {
+    document.getElementById('start-search-input').value = '';
+    document.getElementById('start-search-results').style.display = 'none';
     if (typeof motion !== 'undefined') {
       motion(startMenu, {
         from: { opacity: 1, transform: 'translateY(0) scale(1)' },
@@ -2657,7 +2659,7 @@ function renderVideo(container, winId) {
       list.innerHTML = `
         <div style="padding:20px;text-align:center;color:var(--text-sec)">
           <div>No videos found in Videos folder</div>
-          <div style="font-size:11px;color:var(--text-ter);margin-top:4px">Add videos to files/Videos to see them here</div>
+          <div style="font-size:11px;color:var(--text-ter);margin-top:4px">Add videos to any folder to see them here</div>
         </div>`;
       return;
     }
@@ -3529,6 +3531,7 @@ function renderExplorer(container, winId, extra = {}) {
               <div class="ex-breadcrumb" id="ex_bc_${winId}">/</div>
               <div class="ex-view-btns">
                 <input type="file" id="ex_upload_${winId}" style="display:none" multiple />
+                <div class="evb" id="ex_ref_${winId}" title="Refresh">${lucideIconHtml('rotate-cw', 16)}</div>
                 <div class="evb" id="ex_up_${winId}_btn" title="Upload files" onclick="document.getElementById('ex_upload_${winId}').click()">${lucideIconHtml('upload', 16)}</div>
                 <div class="evb active" id="ex_vg_${winId}" title="Grid view">${lucideIconHtml('layout-grid', 16)}</div>
                 <div class="evb" id="ex_vl_${winId}" title="List view">${lucideIconHtml('list', 16)}</div>
@@ -3619,6 +3622,14 @@ function renderExplorer(container, winId, extra = {}) {
       
       if (data.success && data.files && data.files.length > 0) {
         showNotification('File Explorer', `Uploaded ${data.files.length} file(s)`, 'upload-cloud');
+        data.files.forEach(f => {
+          const p = normPath(destPath) + '/' + f.name;
+          if (!FS[p]) {
+            FS[p] = { type: 'file', ext: f.name.split('.').pop() || 'bin', content: '', modified: Date.now() };
+          }
+        });
+        saveFS();
+        serverFiles = null;
         await loadServerFiles(true);
         renderFiles();
       }
@@ -3656,11 +3667,17 @@ function renderExplorer(container, winId, extra = {}) {
 
   async function loadServerFiles(forceRefresh = false) {
     if (serverFiles && !forceRefresh) return serverFiles;
-    try {
-      const res = await fetch('/api/files');
-      serverFiles = await res.json();
-      return serverFiles;
-    } catch (e) { return {}; }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch('/api/files?t=' + Date.now());
+        if (!res.ok) throw new Error('Server error');
+        serverFiles = await res.json();
+        return serverFiles;
+      } catch (e) {
+        if (attempt === 2) return serverFiles || {};
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
   }
 
   async function renderFiles() {
@@ -3668,48 +3685,42 @@ function renderExplorer(container, winId, extra = {}) {
     const status = document.getElementById(`ex_status_${winId}`);
     const mainEl = document.getElementById(`ex_main_${winId}`);
 
-    const mediaFolders = ['/Pictures', '/Music', '/Videos'];
-    const isMediaFolder = mediaFolders.includes(cwd);
     const isRoot = cwd === '/';
     let items = [];
 
-    if (isMediaFolder || isRoot) {
-      const sf = await loadServerFiles();
-      if (isRoot) {
-        const serverFolderNames = Object.keys(sf).filter(f => f !== 'root');
-        const localDirs = fsListDir('/').filter(f => f.type === 'dir').map(d => d.name);
-        const allFolderNames = [...new Set([...localDirs, ...serverFolderNames])].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-        items = allFolderNames.map(name => ({
-          path: '/' + name,
-          name: name,
-          type: 'dir'
-        }));
-      } else {
-        const folderName = cwd.slice(1);
-        const folderFiles = sf[folderName] || [];
-        items = folderFiles.map(f => ({
-          path: f.path,
-          name: f.name,
-          type: 'file',
-          isImg: f.isImg,
-          isVid: f.isVid,
-          isMusic: f.isMusic,
-          thumb: f.thumb
-        }));
-      }
+    const sf = await loadServerFiles(true);
+    if (isRoot) {
+      const serverFolderNames = Object.keys(sf).filter(f => f !== 'root');
+      const localDirs = fsListDir('/').filter(f => f.type === 'dir').map(d => d.name);
+      const allFolderNames = [...new Set([...localDirs, ...serverFolderNames])].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      items = allFolderNames.map(name => ({
+        path: '/' + name,
+        name: name,
+        type: 'dir'
+      }));
     } else {
-      items = fsListDir(cwd);
+      const folderName = cwd.slice(1);
+      const serverFolderFiles = sf[folderName] || [];
+      items = serverFolderFiles.map(f => ({
+        path: f.path,
+        name: f.name,
+        type: 'file',
+        isImg: f.isImg,
+        isVid: f.isVid,
+        isMusic: f.isMusic,
+        thumb: f.thumb
+      }));
     }
 
     status.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
 
     if (!items.length) {
-      cnt.innerHTML = '<div class="ex-empty-msg" style="padding:32px;text-align:center;color:var(--text-ter);font-size:14px;">' + (isMediaFolder ? 'No files in this folder' : 'This folder is empty ” drop files here') + '</div>';
+      cnt.innerHTML = '<div class="ex-empty-msg" style="padding:32px;text-align:center;color:var(--text-ter);font-size:14px;">This folder is empty — drop files here</div>';
       mainEl.classList.remove('ex-drop-target');
       return;
     }
 
-      cnt.innerHTML = '';
+    cnt.innerHTML = '';
     if (viewMode === 'grid') {
       cnt.className = 'file-grid';
       items.forEach(f => {
@@ -3822,6 +3833,7 @@ function renderExplorer(container, winId, extra = {}) {
     document.getElementById(`ex_vg_${winId}`).classList.remove('active');
     renderFiles();
   });
+  document.getElementById(`ex_ref_${winId}`).addEventListener('click', () => renderFiles());
 
   const mainEl = document.getElementById(`ex_main_${winId}`);
   const sbEl = document.getElementById(`ex_sb_${winId}`);
@@ -7217,5 +7229,17 @@ if ('serviceWorker' in navigator) {
       .catch(err => console.log('SW Failed', err));
   });
 }
+
+function requestFullscreenOnInteraction() {
+  const handler = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+    document.removeEventListener('click', handler);
+  };
+  document.addEventListener('click', handler);
+}
+
+document.addEventListener('DOMContentLoaded', requestFullscreenOnInteraction);
 
 init();
