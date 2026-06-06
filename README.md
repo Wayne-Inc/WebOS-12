@@ -31,32 +31,26 @@ Because this project uses Service Workers, it **must** be served over a local or
 
 ---
 
-## 🛠️ Adding Custom Apps
+## 🛠️ PLANS
 
-To add a new app, register it in the `APPS` array and update the `renderApp` function:
-
-```javascript
-// Step 1: Update APPS for the OS to recognise the app
-
-const APPS = {
-    my-app: { name:'App-Name',icon:'lucide-icon-name, w:--, h:--, pinned:false/true },
-}
-```
-
-```javascript
-//Step 2: Now the renderApp section for the app to render the windows.
-
-function renderApp(appId, container, winId, extra) {
-  switch(appId) {
-    case 'App-Name':    renderApp-Name(container, winId, extra); break;
-  }
-}
-```
-
-```javascript
-//Step 3: Now the renderApp section for the app to render the windows.
-
-function renderApp-Name() {YOUR FUNCTIONS}
-```
+- [ ] SCRIPTWRITING-NOTEPAD TO ACT AS SCRIPTWRITER OR ILES LABELLED .WOS
+- [ ] PROGRAMMING LANGUAGE
+- [ ] FILE NAME SHORTENING ERROR
+- [ ] NEURAL WALLPAPER
+- [ ] HIDE TASKBAR SETTING
+- [ ] WEATHER WIDGET
+- [ ] MULTI-USERS-NEW USERS GET THE SETUP SCREEN
+- [ ] AN APP TO CODE HTML,CSS AND JS AND PREVIEW
+- [ ] BETTER EMAIL SETTING USING FIREBASE
+- [ ] REMAKE THE DEVELOPER APP
+- [ ] AN OFFLINE BROWSER FRONT PAGE
+- [ ] AN NEWS APP
+- [ ] A SOCIAL APP
+- [ ] REMOVE ALL CHROME ALERTS AND MAKE THE OS THEMED ALERTS 
+- [ ] SEARCH IN EXPLORER
+- [ ] A WINDOWS 11 THEMED QUICK SETTINGS PANE,MORE OPTIONS
+- [ ] SHOW SET COMPUTER NAME IN SETTINGS AND MAKE IT EDITABLE
+- [ ] A NETWORK PANE WHERE IT SHOWS USERS ONLINE USING FIREBASE
+- [ ] NETWORK SIMULATION
 ---
 ## Developed with 💙 by *Wayne-Inc*
