@@ -52,5 +52,7 @@ Because this project uses Service Workers, it **must** be served over a local or
 - [ ] SHOW SET COMPUTER NAME IN SETTINGS AND MAKE IT EDITABLE
 - [ ] A NETWORK PANE WHERE IT SHOWS USERS ONLINE USING FIREBASE
 - [ ] NETWORK SIMULATION
+- [ ] FIX BROWSER
+- [ ] ENSURE AUTO UPDATE .EXEs
 ---
 ## Developed with 💙 by *Wayne-Inc*
