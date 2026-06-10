@@ -54,5 +54,7 @@ Because this project uses Service Workers, it **must** be served over a local or
 - [ ] NETWORK SIMULATION
 - [ ] FIX BROWSER
 - [ ] ENSURE AUTO UPDATE .EXEs
+- [ ] BIOS
+- [ ] WORKING BROWSER
 ---
 ## Developed with 💙 by *Wayne-Inc*
