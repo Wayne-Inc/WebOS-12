@@ -1,10 +1,10 @@
-# 🖥️ WebOS 12
+#  WebOS 12
 
 A refined web environment built with **Vanilla JavaScript** and **modern CSS3**. It mimics a native desktop experience entirely within the browser.
 
 **This took alot of time...❤️❤️**
 
-## 📥 Installation
+##  Installation
 
 Because this project uses Service Workers, it **must** be served over a local or remote server.
     
@@ -31,7 +31,7 @@ Because this project uses Service Workers, it **must** be served over a local or
 
 ---
 
-## 🛠️ PLANS
+##  PLANS
 
 - [ ] SCRIPTWRITING-NOTEPAD TO ACT AS SCRIPTWRITER OR FILES LABELLED .WOS
 - [ ] PROGRAMMING LANGUAGE
